@@ -1,0 +1,176 @@
+12.1) /*Să se afișeze numărul de episoade vizionate în mai 2022 de pe fiecare cont, episoade ce aparțin de seriale din categoriile thriller și istoric.
+ Se va afișa și numele contului.*/
+
+         
+select c.nume, count(a.nr_episod)
+from cont c join acceseaza_serial a
+on c.id_cont=a.id_cont
+join apartine ap
+on a.id_articol=ap.id_articol
+join categorie ca
+on ap.id_categorie=ca.id_categorie
+where lower(ca.denumire) in('thriller', 'istoric')
+and to_char(a.data_start, 'mm')='05' 
+and to_char(a.data_start, 'yyyy')='2022' 
+group by c.nume;
+
+12.2) /*Se vor determina cele mai populare tipuri de abonamente în rândul adulților.
+      Să se afișeze în ordine alfabetică tipurile de abonamente și valoarea plătită pe ele pe ultimul an pentru abonamentele care îndeplinesc condițiile: 
+plata s-a realizat de către un adult, iar suma plătită este cel puțin egală cu media sumelor plătite de adulți.*/
+
+select a.tip, sum(p.suma)
+from abonament a join plateste p
+on a.nr_abonament=p.nr_abonament
+join cont c
+on p.id_cont=c.id_cont
+join client cl
+on c.cod_client=cl.cod_client
+where months_between(sysdate, data_nastere)>=18*12
+and to_char(trunc(p.data_realizare, 'yyyy'))='01-JAN-22'
+and p.suma>=(select avg(p1.suma)
+            from plateste p1 join cont c1
+            on p1.id_cont=c1.id_cont
+            join client cl1
+            on c1.cod_client=cl1.cod_client
+            where months_between(sysdate, cl1.data_nastere)>=18*12)
+group by a.tip
+order by a.tip;
+
+12.3) /*Să se determine sezoanele incomplete (cu cel mult 2 episoade).
+          Să se afișeze sezonul (și serialul de care aparține), 
+recomandarea în funcție de categoria de vârstă și numărul de episoade pentru sezoanele incomplete.*/
+
+select a.nume||' Sezon '||to_char(s.nr_sezon) as "Sezon",
+decode(a.varsta_min_recomandata, 12, 'pentru copii',
+                    16, 'pentru adolescenti',
+                    18, 'pentru adulti',
+                    'nespecificat') as "Recomandare",
+count(e.nr_episod) as "Nr episoade"
+from articol a join sezon s
+on a.id_articol=s.id_articol
+left join episod e
+on s.nr_sezon=e.nr_sezon
+and s.id_articol=e.id_articol
+group by a.nume, a.varsta_min_recomandata, s.nr_sezon
+having count(e.nr_episod)<=2;
+
+12.4) /*Să se afișeze recenziile pozitive, adică cele cu ratingul mai mare decât media pe acel articol.
+          Pentru acestea, se afișează numele articolului recenzat, ratingul și comentariul (dacă nu există, se afișează mesajul Fără comentariu).*/
+
+select a.nume, r.rating, nvl(r.comentariu, 'Fara comentariu') as "Comentariu"
+from articol a 
+join posteaza p
+on a.id_articol=p.id_articol
+join recenzie r
+on p.nr_recenzie=r.nr_recenzie
+where r.rating>=(select avg(r1.rating) 
+                    from recenzie r1
+                    join posteaza p1
+                    on r1.nr_recenzie=p1.nr_recenzie 
+                    where p1.id_articol=a.id_articol);
+
+12.5)  /*Să se determine lista filmelor care au cel puțin o vizionare în procent mai mare de 50%.
+ Pentru acestea, se va afișa pe rând categoria, denumirea, nivelul de popularitate, id-ul și numele trailerului (sau Trailer, dacă nu există).*/
+
+with f as
+    (select a.nume, a.id_articol
+     from articol a join acceseaza_film af
+     on a.id_articol=af.id_articol
+     where af.procent_parcurs>=50)
+select c.denumire, f.nume, case c.nivel_popularitate when 1 then 'nepopular'
+                                            when 2 then 'nepopular'
+                                            when 3 then 'mediu'
+                                            when 4 then 'popular'
+                                            when 5 then 'popular'
+                                            end as "Popularitate",
+t.id_trailer, nvl(t.nume, 'Trailer') as "Trailer"
+from f join apartine ap
+on f.id_articol=ap.id_articol
+join categorie c
+on ap.id_categorie=c.id_categorie
+join trailer t
+on f.id_articol=t.id_articol
+order by c.denumire, f.nume;
+
+
+13.1)  /*Să se adauge cadou o lună gratuită de acces la abonament pentru toți clienții născuți în luna octombrie.*/
+
+update plateste p
+set p.data_expirare=add_months(p.data_expirare, 1)
+where p.id_cont in (select c.id_cont from cont c join client cl
+                    on c.cod_client=cl.cod_client
+                    where to_char(cl.data_nastere,'mm')='10');
+
+
+
+13.2) /*Să se adauge 500 de lei la câștigul obținut din reclamele ce aparțin de abonamente pe care s-au făcut mai mult de 2 plăți.*/
+
+update reclama 
+set castig=castig+500
+where nr_abonament in (select p.nr_abonament
+                         from plateste p 
+                         group by p.nr_abonament
+                         having count(p.id_plata)>2);
+
+
+13.3)/*Pentru serialul Dosarele X, să se șteargă sezoanele pentru care nu există niciun episod în baza de date.*/
+
+delete from sezon
+where id_articol= (select a.id_articol from articol a
+                    where lower(a.nume)='dosarele x')
+and nr_sezon in (select s.nr_sezon from sezon s
+                    join articol a on s.id_articol=a.id_articol
+                    left join episod e
+                    on s.nr_sezon=e.nr_sezon
+                    where e.nr_episod is null and
+                    lower(a.nume)='dosarele x');
+
+
+
+16.1) /*Pentru fiecare client, să se afișeze numărul de categorii de filme accesate.*/
+
+select cl.nume||' '||cl.prenume as "Client", count(ca.id_categorie) as "Nr categorii"
+from client cl left outer join cont c
+on cl.cod_client=c.cod_client
+left outer join acceseaza_film af
+on c.id_cont=af.id_cont
+left outer join apartine a
+on af.id_articol=a.id_articol
+left outer join categorie ca
+on a.id_categorie=ca.id_categorie
+group by cl.nume||' '||cl.prenume
+order by 1;
+
+
+16.2) /*Să se afișeze toate articolele care aparțin de categoria acțiune.*/
+select distinct a.nume 
+from articol a
+where not exists
+            (select 1 from categorie c
+             where lower(c.denumire)='actiune'
+             and not exists(select 1 from apartine ap
+                            where c.id_categorie=ap.id_categorie and a.id_articol=ap.id_articol));
+
+
+
+16.3) /*Să se afișeze toate id-urile pentru toate conturile care au adăugat recenzii pentru serialul
+Urzeala tronurilor.*/
+
+select id_cont
+from posteaza
+where id_articol in
+(select id_articol
+from articol
+where lower(nume)='urzeala tronurilor')
+group by id_cont
+having count(id_articol)=
+ (select count(*) from articol
+ where lower(nume)='urzeala tronurilor');
+
+
+
+
+
+
+
+
